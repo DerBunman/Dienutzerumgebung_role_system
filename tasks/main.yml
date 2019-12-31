@@ -1,0 +1,71 @@
+# basic host setup
+---
+- name: "Setup apt and upgrade"
+  block:
+    - name: "Install aptitude, figlet, software-properties-common and zsh using apt"
+      apt:
+        name:
+          - aptitude
+          # figlet is needed for the motd task
+          - figlet
+          # zsh is needed for the users task
+          - zsh
+          # software-properties-common is needed to manage repos
+          - software-properties-common
+        state: latest
+        update_cache: yes
+        force_apt_get: yes
+        autoclean: yes
+        autoremove: yes
+      tags:
+        - upgrade
+
+#    - name: "Adding non-free repository"
+#      shell: "apt-add-repository non-free"
+#      when: ansible_distribution == "Debian"
+#      tags:
+#        - upgrade
+
+#    - name: "Adding universe repository"
+#      shell: "apt-add-repository universe"
+#      when: ansible_distribution == "Ubuntu"
+#      tags:
+#        - upgrade
+
+    - name: Upgrade system using apt
+      apt:
+        update_cache: yes
+        upgrade: full
+      tags:
+        - upgrade
+
+    - name: "Check that /etc/ssh/sshd_config exists"
+      stat:
+        path: /etc/ssh/sshd_config
+      register: stat_result
+
+    - name: "Disallow root SSH access"
+      lineinfile:
+        dest=/etc/ssh/sshd_config
+        regexp="^PermitRootLogin"
+        line="PermitRootLogin no"
+        state=present
+      notify: restart_ssh
+      when: stat_result.stat.exists == True
+
+    - name: "Setup motd"
+      import_tasks: motd.yml
+
+    - name: "Rename network interfaces (reboot needed when changed)"
+      lineinfile:
+        path: /etc/udev/rules.d/70-persistent-net.rules
+        state: present
+        create: yes
+        regexp: '{{ dev.mac }}'
+        line: 'SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="{{ dev.mac }}", NAME="{{ dev.name }}"'
+      loop: "{{ ifrename }}"
+      loop_control:
+        loop_var: dev
+      when: "ifrename is defined and ifrename != False"
+
+  when: 'ansible_become == True'
